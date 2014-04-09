@@ -1,20 +1,26 @@
 require "open3"
 require "json"
+require "yaml"
 
 module BrowserifyRails
   class BrowserifyProcessor < Tilt::Template
     BROWSERIFY_CMD = "./node_modules/.bin/browserify".freeze
 
+    def use_config?(logical_path)
+      @configuration.has_key?(logical_path)
+    end
+
     def prepare
+      @configuration = YAML::load(File.read(File.join(Rails.root, 'config', 'browserify.yml')))
     end
 
     def evaluate(context, locals, &block)
-      if should_browserify? && commonjs_module?
+      if use_config?(context.logical_path) || should_browserify? && commonjs_module?
         asset_dependencies(context.environment.paths).each do |path|
           context.depend_on(path)
         end
 
-        browserify
+        browserify(context.logical_path)
       else
         data
       end
@@ -53,11 +59,17 @@ module BrowserifyRails
       end
     end
 
-    def browserify
+    def browserify(logical_path)
       if Rails.application.config.browserify_rails.source_map_environments.include?(Rails.env)
         options = "-d"
       else
         options = ""
+      end
+
+      if use_config?(logical_path)
+        options += " " + @configuration[logical_path].keys.collect { |key|
+          "--#{key} #{@configuration[logical_path][key][0]}"
+        }.join(" ")
       end
 
       run_browserify(options)
